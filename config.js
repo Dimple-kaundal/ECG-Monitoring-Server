@@ -3,8 +3,8 @@ module.exports={
     TCP_HOST:'0.0.0.0',// for any IP
     WS_PORT:8080,
     STORAGE_DIR :"./bed_data",
-    ALLOWES_IPS:[],
-    MAX_BUFFER_SIZE:1024*20,
+    ALLOWES_IPS:[], //ALLOWED_IPS: ['192.168.1.50']
+    MAX_BUFFER_SIZE:1024*20, //20KB
     MLLP:{
         VT: Buffer.from([0x0b]),//Vertical Tab      start block
         FS: Buffer.from([0x1c]),// File seperator   End block
@@ -14,3 +14,4 @@ module.exports={
 }
 
 // medical monitor wrap messages in these special characters 
+//Minimum Lowr Layer protocol
