@@ -22,17 +22,19 @@ const config = require("./config");
 
 /**
  * Creates a dynamic ACK message based on the incoming message
- * @param {string} controlId - The ID from the incoming MSH-10
- * @param {string} bedId - The Bed ID (e.g., ICU_01_01) extracted from PV1
+/**
+ * Creates a fully dynamic ACK message
+ * @param {string} controlId - Original MSH-10
+ * @param {string} bedId - Original PV1-3
+ * @param {object} meta - { hospital, version } from the original message
  */
-function createAck(controlId, bedId = "ICU_GENERAL") {
-    // Generate HL7 compliant timestamp (YYYYMMDDHHMMSS)
+function createAck(controlId, bedId, meta) {
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
 
-    // Dynamic MSH-6 (Receiving Facility) using the Bed ID
-    const msh = `MSH|^~\\&|NODE_SERVER|HOSPITAL|PATMON|${bedId}|${timestamp}||ACK|${controlId}|P|2.6\r`;
-    const msa = `MSA|AA|${controlId}\r`;
-
+    // Mirror the hospital name and version from the meta object
+    const msh = `MSH|^~\\&|NODE_SERVER|${meta.hospital}|PATMON|${bedId}|${timestamp}||ACK|${controlId}|P|${meta.version}\r`;   // Message Header
+    const msa = `MSA|AA|${controlId}\r`;                                                                                       // Message ack
+ 
     return Buffer.concat([
         config.MLLP.VT,
         Buffer.from(msh + msa),
@@ -42,3 +44,40 @@ function createAck(controlId, bedId = "ICU_GENERAL") {
 }
 
 module.exports = createAck;
+
+
+
+
+
+// function createAck(rawHl7) {
+//     const lines = rawHl7.split(/\r|\n/);
+//     const mshLine = lines.find(line => line.startsWith("MSH"));
+
+//     if (!mshLine) {
+//         throw new Error("No MSH segment found in message");
+//     }
+
+//     const fields = mshLine.split("|");
+
+//     const sendingApp = fields[2];
+//     const sendingFacility = fields[3];
+//     const receivingApp = fields[4];
+//     const receivingFacility = fields[5];
+//     const controlId = fields[9];
+//     const processingId = fields[10];
+//     const version = fields[11];
+
+//     const timestamp = new Date().toISOString()
+//         .replace(/[-:]/g, "")
+//         .split(".")[0];
+
+//     const ackMessageType = "ACK^" + (fields[8]?.split("^")[1] || "R01");
+
+//     const ack =
+//         `MSH|^~\\&|${receivingApp}|${receivingFacility}|${sendingApp}|${sendingFacility}|${timestamp}||${ackMessageType}|${controlId}|${processingId}|${version}\r` +
+//         `MSA|AA|${controlId}\r`;
+
+//     return ack;
+// }
+
+// module.exports = createAck;

@@ -1,167 +1,113 @@
 
-// // module.exports= saveData;
-// const fs = require("fs");
-// const path = require("path");
-// const config = require("./config");
+// const fs = require('fs');
+// const path = require('path');
 
-// if (!fs.existsSync(config.STORAGE_DIR)) {
-//     fs.mkdirSync(config.STORAGE_DIR, { recursive: true });
+// /**
+//  * Ensures the directory for a specific monitor exists.
+//  * Organized as: bed_data / monitor_ip /
+//  */
+// function ensureDirectoryExistence(monitorIp) {
+//     const dir = path.join(__dirname, 'bed_data', monitorIp.replace(/\./g, '_'));
+
+//     // mkdirSync with recursive does NOT throw if folder already exists
+//     try {
+//         fs.mkdirSync(dir, { recursive: true });
+//     } catch (err) {
+//         console.error("Error creating directory:", err);
+//     }
+
+//     return dir;
 // }
 
 // /**
-//  * Saves HL7 logs and extracts waveforms to a separate CSV file
+//  * Saves the raw HL7 message to a daily log file.
 //  */
-// function saveData(bedId, hl7, waveforms) {
-//     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-//     const dateStr = new Date().toISOString().slice(0, 10);
+// function saveHl7Message(monitorIp, bedId, rawHl7) {
+//     const dir = ensureDirectoryExistence(monitorIp);
+//     const date = new Date().toISOString().split('T')[0];
+//     const fileName = `${bedId}_${date}.hl7`;
+//     const filePath = path.join(dir, fileName);
 
-//     // 1. SAVE RAW HL7 LOG (Daily file)
-//     const hl7FileName = `${bedId}_${dateStr}.hl7`;
-//     const hl7Path = path.join(config.STORAGE_DIR, hl7FileName);
-//     const hl7Entry = `\n[${new Date().toISOString()}]\n${hl7}\n`;
-    
-//     fs.appendFileSync(hl7Path, hl7Entry);
+//     const content = rawHl7 + '\n---\n';
 
-//     // 2. SAVE WAVEFORM TO SEPARATE CSV
-//     if (waveforms && Object.keys(waveforms).length > 0) {
-//         const csvFileName = `WAVEFORM_${bedId}_${timestamp}.csv`;
-//         const csvPath = path.join(config.STORAGE_DIR, csvFileName);
-        
-//         // Prepare CSV Header and Data (Format: LeadName, Value)
-//         let csvContent = "Lead,Value\n";
-        
-//         for (const [leadName, dataPoints] of Object.entries(waveforms)) {
-//             dataPoints.forEach(point => {
-//                 csvContent += `${leadName},${point}\n`;
+//     fs.appendFile(filePath, content, (err) => {
+//         if (err) {
+//             console.error("Error saving HL7 message:", err);
+//         }
+//     });
+// }
+
+// /**
+//  * Saves waveform data into a daily CSV file.
+//  * NOTE: Currently assigns same timestamp to batch.
+//  * Can be extended later for sample-level timestamps.
+//  */
+// function saveWaveformCsv(monitorIp, bedId, leadName, waveformArray) {
+//     if (!waveformArray || waveformArray.length === 0) return;
+
+//     const dir = ensureDirectoryExistence(monitorIp);
+//     const date = new Date().toISOString().split('T')[0];
+//     const fileName = `WAVEFORM_${bedId}_${date}.csv`;
+//     const filePath = path.join(dir, fileName);
+
+//     const baseTimestamp = new Date().toISOString();
+
+//     // Prepare rows
+//     const rows = waveformArray
+//         .map(point => `${baseTimestamp},${leadName},${point}`)
+//         .join('\n') + '\n';
+
+//     // Check if file exists
+//     fs.access(filePath, fs.constants.F_OK, (err) => {
+
+//         if (err) {
+//             // File does not exist → create with header + rows
+//             const header = 'Timestamp,Lead,Value\n';
+//             fs.writeFile(filePath, header + rows, (writeErr) => {
+//                 if (writeErr) {
+//                     console.error("Error creating waveform CSV:", writeErr);
+//                 }
+//             });
+//         } else {
+//             // File exists → append only rows
+//             fs.appendFile(filePath, rows, (appendErr) => {
+//                 if (appendErr) {
+//                     console.error("Error appending waveform CSV:", appendErr);
+//                 }
 //             });
 //         }
-
-//         fs.writeFileSync(csvPath, csvContent);
-//         console.log(` Waveform saved to: ${csvFileName}`);
-//     }
+//     });
 // }
 
-// module.exports = saveData;
-
-
-// const fs = require("fs");
-// const path = require("path");
-// const config = require("./config");
-
-// // Ensure the base storage directory exists
-// if (!fs.existsSync(config.STORAGE_DIR)) {
-//     fs.mkdirSync(config.STORAGE_DIR, { recursive: true });
-// }
-
-// function saveData(bedId, hl7, waveforms, clientIP) {
-//     // 1. Setup IP-specific folder paths
-//     const ipFolderName = clientIP.replace(/\./g, "_");
-//     const ipFolderPath = path.join(config.STORAGE_DIR, ipFolderName);
-
-//     if (!fs.existsSync(ipFolderPath)) {
-//         fs.mkdirSync(ipFolderPath, { recursive: true });
-//         console.log(`📁 Created NEW folder for IP: ${clientIP}`);
-//     }
-
-//     const dateStr = new Date().toISOString().slice(0, 10);
-//     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-//     const hl7Path = path.join(ipFolderPath, `${bedId}_${dateStr}.hl7`);
-    
-//     // 2. Save Raw HL7 Data
-//     console.log(`📝 Writing HL7 data to: ${hl7Path}`);
-//     const hl7Entry = `\n[${new Date().toISOString()}]\n${hl7}\n`;
-//     fs.appendFileSync(hl7Path, hl7Entry);
-
-//     // 3. Save CSV Waveform (MOVED INSIDE THE FUNCTION)
-//     if (waveforms && Object.keys(waveforms).length > 0) {
-//         const csvPath = path.join(ipFolderPath, `WAVEFORM_${bedId}_${timestamp}.csv`);
-//         console.log(`📊 Saving Waveform CSV to: ${csvPath}`);
-        
-//         let csvContent = "Lead,Value\n";
-//         for (const [leadName, dataPoints] of Object.entries(waveforms)) {
-//             dataPoints.forEach(point => {
-//                 csvContent += `${leadName},${point}\n`;
-//             });
-//         }
-//         fs.writeFileSync(csvPath, csvContent);
-//     }
-// }
-
-// module.exports = saveData;
-
-
-// const fs = require("fs");
-// const path = require("path");
-// const config = require("./config");
-
-// // Ensure the base storage directory exists
-// if (!fs.existsSync(config.STORAGE_DIR)) {
-//     fs.mkdirSync(config.STORAGE_DIR, { recursive: true });
-// }
-
-// function saveData(bedId, hl7, waveforms, clientIP) {
-//     // 1. Setup IP-specific folder paths
-//     const ipFolderName = clientIP.replace(/\./g, "_");
-//     const ipFolderPath = path.join(config.STORAGE_DIR, ipFolderName);
-
-//     if (!fs.existsSync(ipFolderPath)) {
-//         fs.mkdirSync(ipFolderPath, { recursive: true });
-//         console.log(`📁 Created NEW folder for IP: ${clientIP}`);
-//     }
-
-//     const dateStr = new Date().toISOString().slice(0, 10);
-//     const hl7Path = path.join(ipFolderPath, `${bedId}_${dateStr}.hl7`);
-    
-//     // 2. Save Raw HL7 Data (Appends to daily log)
-//     const hl7Entry = `\n[${new Date().toISOString()}]\n${hl7}\n`;
-//     fs.appendFileSync(hl7Path, hl7Entry);
-//     console.log(`📝 HL7 log updated: ${bedId}_${dateStr}.hl7`);
-
-//     // 3. Save CSV Waveform (Appends to daily CSV)
-//     if (waveforms && Object.keys(waveforms).length > 0) {
-//         const csvPath = path.join(ipFolderPath, `WAVEFORM_${bedId}_${dateStr}.csv`);
-        
-//         // If file doesn't exist, create it with a header first
-//         if (!fs.existsSync(csvPath)) {
-//             fs.writeFileSync(csvPath, "Timestamp,Lead,Value\n");
-//         }
-        
-//         let csvContent = "";
-//         const currentTime = new Date().toISOString();
-
-//         for (const [leadName, dataPoints] of Object.entries(waveforms)) {
-//             dataPoints.forEach(point => {
-//                 // Adding a timestamp to each row so you know exactly when the wave happened
-//                 csvContent += `${currentTime},${leadName},${point}\n`;
-//             });
-//         }
-        
-//         // Use appendFileSync to keep all data in one file
-//         fs.appendFileSync(csvPath, csvContent); 
-        
-//         console.log(`📊 Waveform data appended to: WAVEFORM_${bedId}_${dateStr}.csv`);
-//     }
-// }
-
-// module.exports = saveData;
+// module.exports = {
+//     saveHl7Message,
+//     saveWaveformCsv
+// };
 const fs = require('fs');
 const path = require('path');
 
 /**
  * Ensures the directory for a specific monitor exists.
- * Organized by: bed_data / monitor_ip /
+ * Organized as: ./bed_data / monitor_ip_address /
  */
 function ensureDirectoryExistence(monitorIp) {
-    const dir = path.join(__dirname, 'bed_data', monitorIp.replace(/\./g, '_'));
+    // Sanitize IP to use as folder name (replace dots/colons with underscores)
+    const safeIp = monitorIp.replace(/[:.]/g, '_');
+    const dir = path.join(__dirname, 'bed_data', safeIp);
+
     if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-        console.log(`📁 Created NEW folder for IP: ${monitorIp}`);
+        try {
+            fs.mkdirSync(dir, { recursive: true });
+        } catch (err) {
+            console.error(`Critical Error: Could not create directory ${dir}:`, err);
+        }
     }
     return dir;
 }
 
 /**
  * Saves the raw HL7 message to a daily log file.
+ * Automatically creates the file if it doesn't exist.
  */
 function saveHl7Message(monitorIp, bedId, rawHl7) {
     const dir = ensureDirectoryExistence(monitorIp);
@@ -169,33 +115,46 @@ function saveHl7Message(monitorIp, bedId, rawHl7) {
     const fileName = `${bedId}_${date}.hl7`;
     const filePath = path.join(dir, fileName);
 
-    // Append message with a newline for readability
-    fs.appendFileSync(filePath, rawHl7 + '\n---\n');
+    const content = `${rawHl7}\n---\n`;
+
+    // 'fs.appendFile' is efficient and creates the file if it doesn't exist
+    fs.appendFile(filePath, content, (err) => {
+        if (err) {
+            console.error(`Error saving HL7 for Bed ${bedId}:`, err);
+        }
+    });
 }
 
 /**
- * Decodes and saves waveform data into a daily CSV file.
+ * Saves waveform data into a daily CSV file.
+ * Uses a single write operation per batch for better performance.
  */
-function saveWaveformCsv(monitorIp, bedId, waveformArray) {
+function saveWaveformCsv(monitorIp, bedId, leadName, waveformArray) {
+    if (!waveformArray || waveformArray.length === 0) return;
+
     const dir = ensureDirectoryExistence(monitorIp);
     const date = new Date().toISOString().split('T')[0];
     const fileName = `WAVEFORM_${bedId}_${date}.csv`;
     const filePath = path.join(dir, fileName);
 
-    const timestamp = new Date().toISOString();
-    
-    // Create header if file is new
-    if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, 'Timestamp,Lead,Value\n');
-    }
+    const baseTimestamp = new Date().toISOString();
 
-    // Append each point to the CSV
-    const rows = waveformArray.map(point => `${timestamp},ECG_LEAD_II,${point}`).join('\n');
-    fs.appendFileSync(filePath, rows + '\n');
-    console.log(`📊 Waveform data appended to: ${fileName}`);
+    // Check if file exists to determine if we need a header
+    const fileExists = fs.existsSync(filePath);
+    const header = fileExists ? '' : 'Timestamp,Lead,Value\n';
+
+    // Map all points to a string block to minimize disk I/O
+    const rows = waveformArray
+        .map(point => `${baseTimestamp},${leadName},${point}`)
+        .join('\n') + '\n';
+
+    fs.appendFile(filePath, header + rows, (err) => {
+        if (err) {
+            console.error(`Error appending Waveform CSV for Bed ${bedId}:`, err);
+        }
+    });
 }
 
-// Ensure these names match exactly what server.js calls
 module.exports = {
     saveHl7Message,
     saveWaveformCsv
