@@ -91,40 +91,37 @@ const path = require('path');
  * Organized as: ./bed_data / monitor_ip_address /
  */
 function ensureDirectoryExistence(monitorIp) {
-    // Sanitize IP to use as folder name (replace dots/colons with underscores)
+    // 1. Use an absolute path to ensure files go to the right place
     const safeIp = monitorIp.replace(/[:.]/g, '_');
     const dir = path.join(__dirname, 'bed_data', safeIp);
 
+    // 2. mkdirSync with { recursive: true } handles nested folders reliably
     if (!fs.existsSync(dir)) {
-        try {
-            fs.mkdirSync(dir, { recursive: true });
-        } catch (err) {
-            console.error(`Critical Error: Could not create directory ${dir}:`, err);
-        }
+        fs.mkdirSync(dir, { recursive: true });
+        console.log(`📁 Created directory: ${dir}`);
     }
     return dir;
 }
-
 /**
  * Saves the raw HL7 message to a daily log file.
  * Automatically creates the file if it doesn't exist.
  */
 function saveHl7Message(monitorIp, bedId, rawHl7) {
+    console.log(`🛠️ Attempting to save for Bed: ${bedId} from IP: ${monitorIp}`);
     const dir = ensureDirectoryExistence(monitorIp);
     const date = new Date().toISOString().split('T')[0];
-    const fileName = `${bedId}_${date}.hl7`;
-    const filePath = path.join(dir, fileName);
+    const filePath = path.join(dir, `${bedId}_${date}.hl7`);
 
     const content = `${rawHl7}\n---\n`;
 
-    // 'fs.appendFile' is efficient and creates the file if it doesn't exist
     fs.appendFile(filePath, content, (err) => {
         if (err) {
-            console.error(`Error saving HL7 for Bed ${bedId}:`, err);
+            console.error(`❌ ERROR writing to ${filePath}:`, err);
+        } else {
+            console.log(`✅ SUCCESS: File written to ${filePath}`);
         }
     });
 }
-
 /**
  * Saves waveform data into a daily CSV file.
  * Uses a single write operation per batch for better performance.

@@ -385,6 +385,7 @@ function separateHl7Data(rawHl7) {
       const id = fields[3];
       const val = fields[5];
 
+      // Handle Numeric Vitals (NM)
       if (type === "NM") {
         if (id.includes("HEART_RATE") || id === "HR") vitals.HR = val;
         if (id.includes("PULS_OXIM_SAT_O2") || id.includes("SPO2")) vitals.SpO2 = val;
@@ -399,8 +400,14 @@ function separateHl7Data(rawHl7) {
         }
       }
 
+      // Handle Waveform Data (ED)
       if (type === "ED") {
-        const leadName = id.includes("^") ? id.split("^")[0] : id;
+        // Identify the lead name (ECG, SPO2, or RESP)
+        let leadName = "ECG"; // Default
+        if (id.includes("SPO2") || id.includes("PLETH")) leadName = "SPO2";
+        else if (id.includes("RESP") || id.includes("CO2")) leadName = "RESP";
+        else if (id.includes("ECG")) leadName = "ECG";
+
         let base64Data = val;
         if (val && val.includes("^")) {
            const parts = val.split("^");
