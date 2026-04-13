@@ -1,3 +1,5 @@
 serviceaccount.json
-node_modules/
+
 .envgit add .
+bed_data/
+node_modules/

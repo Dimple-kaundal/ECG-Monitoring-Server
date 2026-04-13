@@ -1,210 +1,145 @@
-
-
 // const net = require('net');
-// const WebSocket = require('ws');
 // const parser = require('./parser');
 // const createAck = require('./ack');
-// const storage = require('./storage'); 
+// const storage = require('./storage');
+// const { Broadcast } = require('./websocket');
+// const config = require('./config');
 
-// // ----------------------------------------------------------------------
-// // 1. WEBSOCKET SERVER (For Flutter Web Dashboard)
-// // ----------------------------------------------------------------------
-// const wss = new WebSocket.Server({ port: 8080 });
-// console.log('✅ WebSocket Hub active on Port 8080');
+// const VT = '\x0b'; const FS = '\x1c'; const CR = '\x0d';
 
-// wss.on('connection', (ws, req) => {
-//     const clientIp = req.socket.remoteAddress;
-//     console.log(`💻 Flutter app connected: ${clientIp}`);
-//     ws.on('close', () => console.log('❌ Flutter app disconnected'));
-// });
-
-// function broadcastToDashboards(data) {
-//     wss.clients.forEach(client => {
-//         if (client.readyState === WebSocket.OPEN) {
-//             client.send(JSON.stringify(data));
-//         }
-//     });
-// }
-
-// // ----------------------------------------------------------------------
-// // 2. TCP SERVER (For Bedside Monitors/Hercules)
-// // ----------------------------------------------------------------------
 // const tcpServer = net.createServer((socket) => {
+//     socket.setNoDelay(true); // Disable Nagle's Algorithm for real-time
 //     const monitorIp = socket.remoteAddress.replace(/^.*:/, '');
 //     console.log(`📡 Monitor Connected: ${monitorIp}`);
 
+//     let buffer = '';
+
 //     socket.on('data', (data) => {
-//         // Log raw hex to verify MLLP wrappers (0b ... 1c0d)
-//         console.log("Raw Data Hex:", data.toString('hex'));
+//         buffer += data.toString();
+//         while (buffer.includes(VT) && buffer.includes(FS + CR)) {
+//             const start = buffer.indexOf(VT);
+//             const end = buffer.indexOf(FS + CR);
+//             const rawHl7 = buffer.substring(start + 1, end);
+//             buffer = buffer.substring(end + 2);
 
-//         try {
-//             const rawHl7 = data.toString();
-//             console.log(`📥 Received ${data.length} bytes from ${monitorIp}`);
+//             try {
+//                 const { vitals, waveforms } = parser.separateHl7Data(rawHl7);
+//                 const controlId = parser.extractMessageControlId(rawHl7);
+//                 const bedId = parser.extractBedId(rawHl7);
+//                 const metadata = parser.extractHeaderMetadata(rawHl7);
 
-//             // A. Extract Header Metadata (Hospital Name & HL7 Version)
-//             // This replaces static strings with real data from the monitor
-//             const metadata = parser.extractHeaderMetadata(rawHl7);
-//             const controlId = parser.extractMessageControlId(rawHl7);
-//             const bedId = parser.extractBedId(rawHl7);
+//                 // 1. BROADCAST
+//                 Broadcast({ monitorIP: monitorIp, vitals, waveforms, timestamp: new Date().toISOString() });
 
-//             // B. Parse Vitals and Waveforms
-//             const { vitals, waveforms } = parser.separateHl7Data(rawHl7);
+//                 // 2. ACK
+//                 socket.write(createAck(controlId, bedId, metadata));
 
-//             // C. Save Data to Folders
-//             storage.saveHl7Message(monitorIp, bedId, rawHl7);
-//             if (waveforms['ECG_LEAD_II']) {
-//                 storage.saveWaveformCsv(monitorIp, bedId, waveforms['ECG_LEAD_II']);
+//                 // 3. BACKGROUND STORAGE
+//                 setImmediate(() => {
+//                     storage.saveHl7Message(monitorIp, bedId, rawHl7);
+//                     Object.keys(waveforms).forEach(lead => {
+//                         storage.saveWaveformCsv(monitorIp, bedId, lead, waveforms[lead]);
+//                     });
+//                 });
+
+//             } catch (err) {
+//                 console.error(`❌ Parsing Error: ${err.message}`);
 //             }
-
-//             console.log(`✅ Processing Bed: ${bedId} | Hospital: ${metadata.hospital} | Ver: ${metadata.version}`);
-
-//             // D. Send Fully Dynamic ACK (Mirrors hospital and version)
-//             const ack = createAck(controlId, bedId, metadata);
-//             socket.write(ack);
-
-//             // E. Broadcast to Flutter Web
-//             broadcastToDashboards({
-//                 monitorIP: monitorIp,
-//                 vitals: vitals,
-//                 waveforms: waveforms,
-//                 timestamp: new Date().toISOString()
-//             });
-
-//         } catch (err) {
-//             console.error(`❌ Parsing Error: ${err.message}`);
 //         }
 //     });
 
-//     socket.on('error', (err) => console.log(`⚠️ Socket Error: ${err.message}`));
-//     socket.on('end', () => console.log(`🔌 Monitor Disconnected: ${monitorIp}`));
+//     socket.on('end', () => console.log(`🔌 Disconnected: ${monitorIp}`));
 // });
 
-// tcpServer.listen(5000, '0.0.0.0', () => {
-//     console.log('🚀 TCP SERVER ACTIVE ON PORT 5000 (MLLP)');
+// tcpServer.listen(config.TCP_PORT, '0.0.0.0', () => {
+//     console.log(`🚀 TCP SERVER IS LISTENING ON 0.0.0.0:${config.TCP_PORT}`);
 // });
 
-    const net = require('net');
-    const parser = require('./parser');
-    const createAck = require('./ack');
-    const storage = require('./storage');
-    const { Broadcast } = require('./websocket'); // Using your dedicated WS module
-    const config = require('./config');
+const net = require('net');
+const parser = require('./parser');
+const createAck = require('./ack');
+const storage = require('./storage'); // Ensure this is imported
+const { Broadcast } = require('./websocket');
+const config = require('./config');
 
-    // MLLP Control Characters (Standard for Medical Monitors)
-    const VT = '\x0b'; // Start Block
-    const FS = '\x1c'; // End Block
-    const CR = '\x0d'; // Carriage Return
+const VT = 0x0b; 
+const FS = 0x1c; 
+const CR = 0x0d;
 
-    // ----------------------------------------------------------------------
-    // TCP SERVER (MLLP - Bedside Monitors)
-    // ----------------------------------------------------------------------
-    const tcpServer = net.createServer((socket) => {
-        socket.setKeepAlive(true,60000);
-        socket.setNoDelay(true);
-        socket.setTimeout(0);
+const tcpServer = net.createServer((socket) => {
+    socket.setNoDelay(true);
+    const monitorIp = socket.remoteAddress.replace(/^.*:/, '');
+    console.log(`📡 Monitor Connected: ${monitorIp}`);
 
-        // Sanitize IP address
-        const monitorIp = socket.remoteAddress.replace(/^.*:/, '');
-        console.log(`📡 Monitor Connected: ${monitorIp}`);
+    let buffer = Buffer.alloc(0);
 
-        let buffer = '';
+    socket.on('data', (data) => {
+        // 1. Accumulate incoming data
+        buffer = Buffer.concat([buffer, data]);
 
-        socket.on('data', (data) => {
-            console.log(`📊 Raw Data Received: ${data.length} bytes`);
-            buffer += data.toString();
+        while (true) {
+            const start = buffer.indexOf(VT);
+            const end = buffer.indexOf(FS);
 
-            // Process all complete HL7 messages in the buffer
-            // A message is complete when it is wrapped in VT ... FS + CR
-            while (buffer.includes(VT) && buffer.includes(FS + CR)) {
-                const start = buffer.indexOf(VT);
-                const end = buffer.indexOf(FS + CR);
+            if (start !== -1 && end !== -1 && end > start) {
+                // 2. Extract the block between MLLP markers
+                const rawHl7Block = buffer.slice(start + 1, end).toString();
+                buffer = buffer.slice(end + 2); // Move past FS and CR
 
-                if (start === -1 || end === -1) break;
+                // 3. Handle Mirth sending multiple beds in one block
+                const individualMessages = rawHl7Block.split(/(?=MSH|^MSH)/m);
 
-                // Extract the HL7 text between VT and FS
-                const rawHl7 = buffer.substring(start + 1, end);
-                
-                // Remove the processed part from the buffer
-                buffer = buffer.substring(end + 2);
-
-                try {
-                    console.log(`📥 Received HL7 from ${monitorIp}`);
-
-                    // 1. Extract Metadata
-                    const metadata = parser.extractHeaderMetadata(rawHl7);
-                    const controlId = parser.extractMessageControlId(rawHl7);
-                    const bedId = parser.extractBedId(rawHl7);
-
-                    // 2. Parse Vitals & Waveforms
-                    const { vitals, waveforms } = parser.separateHl7Data(rawHl7);
-
-                    // 3. Persistent Storage
-                    storage.saveHl7Message(monitorIp, bedId, rawHl7);
+                individualMessages.forEach(rawHl7 => {
+                    const trimmedHl7 = rawHl7.trim();
+                    if (!trimmedHl7) return;
                     
-                    Object.keys(waveforms).forEach(lead => {
-                        storage.saveWaveformCsv(
-                            monitorIp,
-                            bedId,
-                            lead,
-                            waveforms[lead]
-                        );
-                    });
+                    try {
+                        // 4. Parse the HL7 message
+                        const { vitals, waveforms } = parser.separateHl7Data(trimmedHl7);
+                        const controlId = parser.extractMessageControlId(trimmedHl7);
+                        const bedId = parser.extractBedId(trimmedHl7);
+                        const metadata = parser.extractHeaderMetadata(trimmedHl7);
 
-                    console.log(`✅ Bed: ${bedId} | Hospital: ${metadata.hospital} | Ver: ${metadata.version}`);
+                        // 5. Broadcast to Flutter
+                        Broadcast({ 
+                            monitorIP: monitorIp, 
+                            vitals, 
+                            waveforms, 
+                            timestamp: new Date().toISOString() 
+                        });
 
-                    // 4. Send MLLP ACK (Fixed the ReferenceError and Double-Wrapping)
-                    // createAck already wraps the message in VT, FS, and CR
-                    const ackBuffer = createAck(controlId, bedId, metadata);
-                    socket.write(ackBuffer);
+                        // 6. Respond with ACK back to Mirth
+                        socket.write(createAck(controlId, bedId, metadata));
 
-                    // 5. Broadcast to Flutter Dashboard via WebSocket
-                    Broadcast({
-                        monitorIP: monitorIp,
-                        vitals: vitals,
-                        waveforms: waveforms,
-                        timestamp: new Date().toISOString()
-                    });
+                        // 7. 🔥 RESTORED: Save to bed_data folder
+                        // We use setImmediate so the drawing doesn't lag while writing to disk
+                        setImmediate(() => {
+                            storage.saveHl7Message(monitorIp, bedId, trimmedHl7);
+                            
+                            // Save CSV for each waveform lead received
+                            Object.keys(waveforms).forEach(lead => {
+                                if (waveforms[lead] && waveforms[lead].length > 0) {
+                                    storage.saveWaveformCsv(monitorIp, bedId, lead, waveforms[lead]);
+                                }
+                            });
+                        });
 
-                } catch (err) {
-                    console.error(`❌ Processing Error: ${err.message}`);
-                }
+                        console.log(`✅ Processed & Saved: ${bedId}`);
+
+                    } catch (err) {
+                        console.error(`❌ Parsing/Storage Error: ${err.message}`);
+                    }
+                });
+            } else {
+                break; 
             }
-
-            // Safety: Prevent buffer from growing infinitely if malformed data arrives
-            if (buffer.length > config.MAX_BUFFER_SIZE) {
-                console.log("⚠️ Buffer overflow, clearing...");
-                buffer = '';
-            }
-        });
-
-        socket.on('error', (err) =>
-            console.log(`⚠️ Socket Error (${monitorIp}): ${err.message}`)
-        );
-
-        socket.on('end', () =>
-            console.log(`🔌 Monitor Disconnected: ${monitorIp}`)
-        );
+        }
     });
 
-    // Start the TCP Server
-    tcpServer.listen(config.TCP_PORT, config.TCP_HOST, () => {
-        console.log(`🚀 TCP SERVER ACTIVE ON PORT ${config.TCP_PORT} (MLLP)`);
-    });
+    socket.on('error', (err) => console.error("Socket Error:", err.message));
+    socket.on('end', () => console.log(`🔌 Disconnected: ${monitorIp}`));
+});
 
-
-
-//Bedside Monitor
-//       ↓
-//MLLP TCP Server
-//      ↓
-//Buffer & Frame Extractor
-//       ↓
-//HL7 Parser
-//       ↓
-//Storage Layer
-//       ↓
-//ACK Generator
-//       ↓
-//WebSocket Broadcast
-//       ↓
-//Flutter ICU Wall
+tcpServer.listen(config.TCP_PORT, '0.0.0.0', () => {
+    console.log(`🚀 TCP SERVER ACTIVE ON PORT ${config.TCP_PORT}`);
+});
